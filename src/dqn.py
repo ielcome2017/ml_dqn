@@ -1,4 +1,5 @@
 import tensorflow as tf
+from tensorflow.contrib.layers.python.layers import batch_norm
 from gym.wrappers.time_limit import TimeLimit
 from collections import deque
 import numpy as np
@@ -10,7 +11,7 @@ class DQN():
     def __init__(self, init_epsilon, final_epsilon, env: TimeLimit, replay_size, train_start_size, gamma=0.9):
         self.epsilon_step =(init_epsilon - final_epsilon) / 10000
         self.final_epsilon = final_epsilon
-        self.action_dim = 2#env.action_space.n
+        self.action_dim = env.action_space.n
         self.replay_size = replay_size
         self.train_start_size = train_start_size
         self.gamma = gamma
@@ -26,6 +27,9 @@ class DQN():
         self.config()
         self.sess = tf.InteractiveSession()
         self.sess.run(tf.global_variables_initializer())
+
+    def batch_norm_layer(self, value):
+        return batch_norm(value, decay=0.9, updates_collections=None, is_training=True)
 
     def add_layer(self, inputs, in_size, out_size, activation_function=None, layer_name='Layer'):
         with tf.name_scope(layer_name):
@@ -56,11 +60,12 @@ class DQN():
         with tf.name_scope("loss"):
             loss = tf.reduce_mean(tf.square(value - self.input_y))
         with tf.name_scope("Adam"):
-            self.optimizer = tf.train.AdamOptimizer(0.01).minimize(loss)
+            self.optimizer = tf.train.AdamOptimizer(0.1).minimize(loss)
 
     def percieve(self, state, action, reward, next_state, done):
-
-        self.replay_buffer.append([state, action, reward, next_state, done])
+        one_hot_action = np.zeros([self.action_dim])
+        one_hot_action[action] = 1
+        self.replay_buffer.append([state, one_hot_action, reward, next_state, done])
 
         if len(self.replay_buffer) > self.replay_size:
             self.replay_buffer.popleft()
@@ -78,7 +83,7 @@ class DQN():
         done = np.array(batch_data[:, 4])
         next_state_reward = self.sess.run(self.Q_value, feed_dict={self.input_x: next_state})
 
-        batch_y = [reward[i] if done[i] else reward[i]*gamma*np.max(next_state_reward[i]) for i in range(len(reward))]
+        batch_y = [reward[i] if done[i] else reward[i] + gamma*np.max(next_state_reward[i]) for i in range(len(reward))]
 
         _ = self.sess.run(self.optimizer, feed_dict={self.input_x: state, self.input_y: batch_y, self.input_action: action})
 
@@ -89,12 +94,12 @@ class DQN():
         :return:
         """
         value = self.sess.run(self.Q_value, feed_dict={self.input_x: [state]})[0]
-        return value#[np.argmax(value), 0]
+        return np.argmax(value)
 
     def get_action(self, state):
         if self.epsilon > self.final_epsilon:
             self.epsilon -= self.epsilon_step
         if np.random.random() < self.epsilon:
-            return np.random.randint(0, self.action_dim-1, size=[2])
+            return np.random.randint(0, self.action_dim-1)
         else:
             return self.get_greedy_action(state)
