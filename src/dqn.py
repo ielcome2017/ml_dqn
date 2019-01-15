@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import random
 
-
+tf.reset_default_graph()
 class DQN():
     def __init__(self, init_epsilon, final_epsilon, env: TimeLimit, replay_size, train_start_size, gamma=0.9):
         self.epsilon_step =(init_epsilon - final_epsilon) / 10000
@@ -25,6 +25,7 @@ class DQN():
         self.replay_buffer = deque()
         self.epsilon = init_epsilon
         self.config()
+
         self.sess = tf.InteractiveSession()
         self.sess.run(tf.global_variables_initializer())
 
@@ -38,7 +39,7 @@ class DQN():
             with tf.name_scope("Biases"):
                 biases = tf.Variable(tf.random_normal([out_size]))
             with tf.name_scope("fx"):
-                fx = tf.matmul(inputs, weights) + biases
+                fx = self.batch_norm_layer(tf.matmul(inputs, weights) + biases)
             if activation_function is None:
                 output = fx
             else:
@@ -52,10 +53,11 @@ class DQN():
         self.input_y = tf.placeholder(tf.float32, [None])
 
         h_0, w_0, b_0 = self.add_layer(self.input_x, self.state_dim, self.n_hidden, activation_function=tf.nn.relu, layer_name="Hidden_1")
-        h_1, w_1, b_1 = self.add_layer(h_0, self.n_hidden, self.n_hidden, activation_function=tf.nn.relu, layer_name="Hidden_2")
-        self.Q_value, _, _ = self.add_layer(h_1, self.n_hidden, self.action_dim, activation_function=None, layer_name="Output")
+        # h_1, w_1, b_1 = self.add_layer(h_0, self.n_hidden, self.n_hidden, activation_function=tf.nn.relu, layer_name="Hidden_2")
+        self.Q_value, _, _ = self.add_layer(h_0, self.n_hidden, self.action_dim, activation_function=None, layer_name="Output")
 
-        value = tf.reduce_sum(tf.multiply(self.Q_value, self.input_action))
+        # value = tf.reduce_sum(tf.multiply(self.Q_value, self.input_action), reduction_indices=1)
+        value = tf.reduce_max(tf.multiply(self.Q_value, self.input_action), reduction_indices=1)
 
         with tf.name_scope("loss"):
             loss = tf.reduce_mean(tf.square(value - self.input_y))
@@ -83,7 +85,7 @@ class DQN():
         done = np.array(batch_data[:, 4])
         next_state_reward = self.sess.run(self.Q_value, feed_dict={self.input_x: next_state})
 
-        batch_y = [reward[i] if done[i] else reward[i] + gamma*np.max(next_state_reward[i]) for i in range(len(reward))]
+        batch_y = [-100*reward[i] if done[i] else reward[i] + gamma*np.max(next_state_reward[i]) for i in range(len(reward))]
 
         _ = self.sess.run(self.optimizer, feed_dict={self.input_x: state, self.input_y: batch_y, self.input_action: action})
 
